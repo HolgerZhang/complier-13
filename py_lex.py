@@ -13,7 +13,11 @@ reserved_words = {
     'for': 'FOR',
     'while': 'WHILE',
     'len': 'LEN',
-    'break': 'BREAK'
+    'break': 'BREAK',
+    'and': 'AND',
+    'or': 'OR',
+    'def': 'DEF',
+    'return': 'RETURN',
 }
 tokens = ['NUMBER', 'PLUS', 'MINUS', 'TIMES', 'DIVIDE', 'LPAREN', 'RPAREN', 'LBRACKET', 'RBRACKET', 'ASSIGN',
           'LBRACE', 'RBRACE', 'SEMICOLON', 'COMMA', 'DPLUS', 'DMINUS', 'ID', 'EDIVIDE',

@@ -2,7 +2,7 @@
 语法：
 program : statements
 statements : statements statement | statement
-statement : assignment | expr | print | if | while | for | break
+statement : assignment | expr | print | if | while | for | break | function | return | call
 assignment : leftval ASSIGN expr | leftval ASSIGN array
 leftval : leftval LBRACKET expr RBRACKET | ID  # 左值，可以被赋值、读取值的符号
 expr : expr PLUS term | expr MINUS term | term
@@ -13,13 +13,19 @@ len : LEN LPAREN leftval RPAREN
 print : PRINT LPAREN exprs RPAREN | PRINT LPAREN RPAREN
 array : LBRACKET exprs RBRACKET | LBRACKET RBRACKET
 selfvar : leftval DPLUS | leftval DMINUS
-condition : expr LT expr | expr LE expr | expr GT expr | expr GE expr | expr EQ expr | expr NE expr | expr
+condition : condition OR join | join
+join : join AND equality | equality
+equality : equality EQ rel | equality NE rel | rel
+rel : expr LT expr | expr LE expr | expr GT expr | expr GE expr | expr
 if : IF LPAREN condition RPAREN LBRACE statements RBRACE
    | IF LPAREN condition RPAREN LBRACE statements RBRACE ELSE LBRACE statements RBRACE
    | IF LPAREN condition RPAREN LBRACE statements RBRACE ELIF LPAREN condition RPAREN LBRACE statements RBRACE ELSE LBRACE statements RBRACE
 while : WHILE LPAREN condition RPAREN LBRACE statements RBRACE
 for : FOR LPAREN assignment SEMICOLON condition SEMICOLON selfvar RPAREN LBRACE statements RBRACE
 break : BREAK
+function : DEF ID LPAREN exprs RPAREN | DEF ID LPAREN RPAREN
+call : leftval LPAREN exprs RPAREN | leftval LPAREN RPAREN
+return : RETURN
 """
 
 # coding=utf-8
@@ -59,7 +65,9 @@ def p_statement(t):
                   | if
                   | while
                   | for
-                  | break"""
+                  | break
+                  | function
+                  | return"""
     if len(t) == 2:
         t[0] = NonTerminal('Statement')
         t[0].add(t[1])
@@ -199,13 +207,8 @@ def p_selfvar(t):
 
 
 def p_condition(t):
-    """condition : expr LT expr
-                 | expr LE expr
-                 | expr GT expr
-                 | expr GE expr
-                 | expr EQ expr
-                 | expr NE expr
-                 | expr"""
+    """condition : condition OR join
+                 | join"""
     if len(t) == 4:
         t[0] = NonTerminal('Condition')
         t[0].add(t[1])
@@ -213,6 +216,49 @@ def p_condition(t):
         t[0].add(t[3])
     elif len(t) == 2:
         t[0] = NonTerminal('Condition')
+        t[0].add(t[1])
+
+
+def p_join(t):
+    """join : join AND equality
+            | equality"""
+    if len(t) == 4:
+        t[0] = NonTerminal('Join')
+        t[0].add(t[1])
+        t[0].add(Terminal(t[2]))
+        t[0].add(t[3])
+    elif len(t) == 2:
+        t[0] = NonTerminal('Join')
+        t[0].add(t[1])
+
+
+def p_equality(t):
+    """equality : equality EQ rel
+                | equality NE rel
+                | rel"""
+    if len(t) == 4:
+        t[0] = NonTerminal('Equality')
+        t[0].add(t[1])
+        t[0].add(Terminal(t[2]))
+        t[0].add(t[3])
+    elif len(t) == 2:
+        t[0] = NonTerminal('Equality')
+        t[0].add(t[1])
+
+
+def p_rel(t):
+    """rel : expr LT expr
+           | expr LE expr
+           | expr GT expr
+           | expr GE expr
+           | expr"""
+    if len(t) == 4:
+        t[0] = NonTerminal('Relation')
+        t[0].add(t[1])
+        t[0].add(Terminal(t[2]))
+        t[0].add(t[3])
+    elif len(t) == 2:
+        t[0] = NonTerminal('Relation')
         t[0].add(t[1])
 
 
@@ -282,6 +328,47 @@ def p_break(t):
     """break : BREAK"""
     if len(t) == 2:
         t[0] = NonTerminal('Break')
+        t[0].add(Terminal(t[1]))
+
+
+def p_function(t):
+    """function : DEF ID LPAREN exprs RPAREN
+                | DEF ID LPAREN RPAREN"""
+    if len(t) == 6:
+        t[0] = NonTerminal('Function')
+        t[0].add(Terminal(t[1]))
+        t[0].add(ID(t[2]))
+        t[0].add(Terminal(t[3]))
+        t[0].add(t[4])
+        t[0].add(Terminal(t[5]))
+    elif len(t) == 5:
+        t[0] = NonTerminal('Function')
+        t[0].add(Terminal(t[1]))
+        t[0].add(ID(t[2]))
+        t[0].add(Terminal(t[3]))
+        t[0].add(Terminal(t[4]))
+
+
+def p_call(t):
+    """call : leftval LPAREN exprs RPAREN
+            | leftval LPAREN RPAREN"""
+    if len(t) == 5:
+        t[0] = NonTerminal('Call')
+        t[0].add(LeftValue(t[1]))
+        t[0].add(Terminal(t[2]))
+        t[0].add(t[3])
+        t[0].add(Terminal(t[4]))
+    elif len(t) == 3:
+        t[0] = NonTerminal('Call')
+        t[0].add(LeftValue(t[1]))
+        t[0].add(Terminal(t[2]))
+        t[0].add(Terminal(t[3]))
+
+
+def p_return(t):
+    """return : RETURN"""
+    if len(t) == 2:
+        t[0] = NonTerminal('Return')
         t[0].add(Terminal(t[1]))
 
 

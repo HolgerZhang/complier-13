@@ -2,7 +2,7 @@
 import sys
 from time import sleep
 
-import translation
+from translation import Translator
 from py_yacc import yacc
 
 if len(sys.argv) != 2:
@@ -19,10 +19,11 @@ try:
         exit(0)
     # translation
     print('运行结果：')
-    translation.translate(root)
-    print("当前变量表：", translation.var_table)
+    tran = Translator(root)
+    tran.translate()
+    print("当前变量表：", tran.var_table)
 except Exception as e:
     sys.stdout.flush()
     sleep(0.05)
     print(*e.args, file=sys.stderr)
-    # raise e
+    raise e
