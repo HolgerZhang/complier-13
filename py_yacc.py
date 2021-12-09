@@ -25,7 +25,7 @@ for : FOR LPAREN assignment SEMICOLON condition SEMICOLON selfvar RPAREN LBRACE 
 break : BREAK
 function : DEF ID LPAREN exprs RPAREN | DEF ID LPAREN RPAREN
 call : leftval LPAREN exprs RPAREN | leftval LPAREN RPAREN
-return : RETURN
+return : RETURN | RETURN exprs
 """
 
 # coding=utf-8
@@ -366,10 +366,15 @@ def p_call(t):
 
 
 def p_return(t):
-    """return : RETURN"""
+    """return : RETURN
+              | RETURN exprs"""
     if len(t) == 2:
         t[0] = NonTerminal('Return')
         t[0].add(Terminal(t[1]))
+    elif len(t) == 3:
+        t[0] = NonTerminal('Return')
+        t[0].add(Terminal(t[1]))
+        t[0].add(t[2])
 
 
 def p_error(t):
