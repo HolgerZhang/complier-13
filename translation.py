@@ -1,59 +1,26 @@
 # coding=utf-8
-"""
-翻译动作：
-提前遍历翻译：
-if -> IF LPAREN condition RPAREN LBRACE statements RBRACE
-   | IF LPAREN condition RPAREN LBRACE statements RBRACE ELSE LBRACE statements RBRACE
-   | IF LPAREN condition RPAREN LBRACE statements RBRACE ELIF LPAREN condition RPAREN LBRACE statements RBRACE ELSE LBRACE statements RBRACE
-while -> WHILE LPAREN condition RPAREN LBRACE statements RBRACE
-for -> FOR LPAREN assignment SEMICOLON condition SEMICOLON selfvar RPAREN LBRACE statements RBRACE
-break -> BREAK
-遍历时翻译：
-assignment -> leftval ASSIGN expr | leftval ASSIGN array { value = expr.value; set_value(var_table, leftval.id, value); }
-leftval -> leftval1 LLIST expr RLIST  { leftval.id = (leftval1.id, expr.value);
-                                        leftval.value = get_value(var_table, leftval.id); }
-leftval -> ID  { leftval.id = (ID.id, None);
-                 if (ID.value != NIL) { set_value(var_table, leftval.id, ID.value); } }
-leftval -> leftval1 LLIST expr RLIST  { leftval.id = (leftval1.id, expr.value); }
-expr -> expr1 '+' term  { expr.value = expr1.value + term.value; }
-expr -> expr1 '-' term  { expr.value = expr1.value - term.value; }
-expr -> term  { expr.value = term.value; }
-term -> term1 '*' factor  { term.value = term1.value * factor.value; }
-term -> term1 '/' factor  { term.value = term1.value / factor.value; }
-term -> term1 '//' factor  { term.value = term1.value // factor.value; }
-term -> factor { term.value = factor.value; }
-factor -> leftval  { value = get_value(var_table, leftval.id); factor.value = value; }
-factor -> NUMBER  { factor.value = NUMBER.value; }
-factor -> len  { factor.value = len.value; }
-factor -> '(' expr ')'  { fact.value = expr.value; }
-exprs -> exprs1 ',' expr  { exprs.value = exprs1.value + [expr.value]; }
-exprs -> expr  { exprs.value = [expr.value]; }
-print -> PRINT '(' exprs ')'  { print(*exprs.value); }
-print -> PRINT '(' ')'  { print(); }
-len -> LEN '(' leftval ')'  { len.value = len(get_value(var_table, leftval.id)) }
-array -> '[' exprs ']'  { array.value = exprs.value; }
-array -> '[' ']' { array.value = []; }
-selfvar -> leftval '++'  { value = get_value(var_table, self._tree.child(0).id);
-                           value = value + 1;
-                           set_value(var_table, leftval.id, value); }
-selfvar -> leftval '--'  { value = get_value(var_table, self._tree.child(0).id);
-                           value = value - 1;
-                           set_value(var_table, leftval.id, value); }
-condition -> condition OR join  { condition.value = condition1.value or join.value; }
-condition -> join  { condition.value = join.value; }
-join -> join AND equality | equality  { join.value = join1.value or equality.value; }
-join -> equality  { join.value = equality.value; }
-equality -> equality '==' rel  { equality.value = equality1.value == rel.value; }
-equality -> equality '!=' rel  { equality.value = equality1.value != rel.value; }
-rel -> expr '<' expr1  { rel.value = exp.value < expr1.value; }
-rel -> expr '<=' expr1  { rel.value = exp.value <= expr1.value; }
-rel -> expr '>' expr1  { rel.value = exp.value > expr1.value; }
-rel -> expr '>=' expr1  { rel.value = exp.value >= expr1.value; }
-rel -> expr  { rel.value = bool(exp.value); }
-"""
 from node import *
 
-DEBUG_MODE = True  # 调试时输出部分运行信息
+DEBUG_MODE = False  # 调试时输出部分运行信息
+
+
+class Function:
+    def __init__(self, name, arg_names, body):
+        self.name = name
+        self.arg_names = arg_names
+        self.body = body
+
+    def __repr__(self):
+        return f"<Function object '{self.name}'>"
+
+    def exec(self, env, args):
+        etb = {self.name: self}
+        for k, v in zip(self.arg_names, args):
+            etb[k] = v
+        if DEBUG_MODE: print(etb)
+        tran = Translator(self.body, tb=env.var_table, extend_table=etb)
+        ret = tran.translate()
+        return ret
 
 
 class Translator:
@@ -83,30 +50,70 @@ class Translator:
             return
         Translator.get_value(tb, name)[sub] = val
 
-    def __init__(self, tree, tb=None, loop=0, break_flag=False):
+    def __init__(self, tree, tb=None, loop=0, break_flag=False, extend_table=None, return_value=NIL, return_flag=False):
         self._tree = tree
         self.var_table = {}  # variable table
-        self._old_table = {}
         if tb is not None:
-            self._old_table = tb
             self.var_table.update(tb)
+        if extend_table is not None:
+            self.var_table.update(extend_table)
         self.loop_flag = loop  # 循环内指示器，大于0为循环层数，等于0为不在循环内，小于0非法
         self.break_flag = break_flag  # break指示器
+        self.return_value = return_value  # 返回值
+        self.return_flag = return_flag  # 返回标志
 
     def _save(self, tran):
         self.var_table = tran.var_table
         self.loop_flag = tran.loop_flag
         self.break_flag = tran.break_flag
+        self.return_value = tran.return_value
+        self.return_flag = tran.return_flag
 
     def translate(self):
-        if self.break_flag:
-            return
-        # 提前翻译 if for while
+        if self.break_flag or self.return_flag:
+            return self.return_value
+        # 提前翻译 if for while function
         if isinstance(self._tree, NonTerminal):
+            # Function
+            if self._tree.type == 'Function':
+                """function : DEF ID LPAREN args RPAREN LBRACE statements RBRACE
+                            | DEF ID LPAREN RPAREN LBRACE statements RBRACE"""
+                assert (len(self._tree.children) == 8 and
+                        isinstance(self._tree.child(0), Terminal) and self._tree.child(0).text == 'def' and
+                        isinstance(self._tree.child(1), ID) and
+                        isinstance(self._tree.child(2), Terminal) and self._tree.child(2).text == '(' and
+                        isinstance(self._tree.child(3), NonTerminal) and self._tree.child(3).type == 'Args' and
+                        isinstance(self._tree.child(4), Terminal) and self._tree.child(4).text == ')' and
+                        isinstance(self._tree.child(5), Terminal) and self._tree.child(5).text == '{' and
+                        isinstance(self._tree.child(6), NonTerminal) and self._tree.child(6).type == 'Statements' and
+                        isinstance(self._tree.child(7), Terminal) and self._tree.child(7).text == '}') or \
+                       (len(self._tree.children) == 7 and
+                        isinstance(self._tree.child(0), Terminal) and self._tree.child(0).text == 'def' and
+                        isinstance(self._tree.child(1), ID) and
+                        isinstance(self._tree.child(2), Terminal) and self._tree.child(1).text == '(' and
+                        isinstance(self._tree.child(3), Terminal) and self._tree.child(3).text == ')' and
+                        isinstance(self._tree.child(4), Terminal) and self._tree.child(4).text == '{' and
+                        isinstance(self._tree.child(5), NonTerminal) and self._tree.child(5).type == 'Statements' and
+                        isinstance(self._tree.child(6), Terminal) and self._tree.child(6).text == '}'), 'Syntax error'
+                name = self._tree.child(1).id
+                if len(self._tree.children) == 8:
+                    tran = Translator(self._tree.child(3), tb=self.var_table,
+                                      loop=self.loop_flag, break_flag=self.break_flag,
+                                      return_value=self.return_value, return_flag=self.return_flag)
+                    tran.translate()
+                    self._save(tran)
+                    args = self._tree.child(3).value
+                    body = self._tree.child(6)
+                else:
+                    args = []
+                    body = self._tree.child(5)
+                func = Function(name, args, body)
+                self.var_table[name] = func
+                return self.return_value
             # If
-            if self._tree.type == 'If':
+            elif self._tree.type == 'If':
                 """if : IF LPAREN condition RPAREN LBRACE statements RBRACE"""
-                assert len(self._tree.children) in (7, 11, 18), 'Syntax error'
+                assert 7 <= len(self._tree.children) <= 8, 'Syntax error'
                 assert isinstance(self._tree.child(0), Terminal) and self._tree.child(0).text == 'if' and \
                        isinstance(self._tree.child(1), Terminal) and self._tree.child(1).text == '(' and \
                        isinstance(self._tree.child(2), NonTerminal) and self._tree.child(2).type == 'Condition' and \
@@ -114,6 +121,9 @@ class Translator:
                        isinstance(self._tree.child(4), Terminal) and self._tree.child(4).text == '{' and \
                        isinstance(self._tree.child(5), NonTerminal) and self._tree.child(5).type == 'Statements' and \
                        isinstance(self._tree.child(6), Terminal) and self._tree.child(6).text == '}', 'Syntax error'
+                if len(self._tree.children) == 8:
+                    assert isinstance(self._tree.child(7), NonTerminal) and \
+                           self._tree.child(7).type == 'Else', 'Syntax error'
                 if DEBUG_MODE: print('if (...)')
                 tran = Translator(self._tree.child(2), tb=self.var_table,
                                   loop=self.loop_flag, break_flag=self.break_flag)  # Condition
@@ -126,55 +136,59 @@ class Translator:
                                       loop=self.loop_flag, break_flag=self.break_flag)  # Statements
                     tran.translate()
                     self._save(tran)
-                if len(self._tree.children) == 11:
+                    # if len(self._tree.children) == 8:
+                    #     self._tree.children.pop(-1)
+                else:
+                    if len(self._tree.children) == 8:
+                        tran = Translator(self._tree.child(7), tb=self.var_table,
+                                          loop=self.loop_flag, break_flag=self.break_flag)  # `else`
+                        tran.translate()
+                        self._save(tran)
+                return self.return_value
+            # Else
+            elif self._tree.type == 'Else':
+                assert len(self._tree.children) in (4, 7, 8), 'Syntax error'
+                if len(self._tree.children) == 4:
                     """ELSE LBRACE statements2 RBRACE"""
-                    assert isinstance(self._tree.child(7), Terminal) and self._tree.child(7).text == 'else' and \
-                           isinstance(self._tree.child(8), Terminal) and self._tree.child(8).text == '{' and \
-                           isinstance(self._tree.child(9), NonTerminal) and self._tree.child(9).type == 'Statements' and \
-                           isinstance(self._tree.child(10), Terminal) and \
-                           self._tree.child(10).text == '}', 'Syntax error'
-                    if not condition:  # 只有if没有成立才执行
-                        if DEBUG_MODE: print('else {...}  # else-else')
-                        tran = Translator(self._tree.child(9), tb=self.var_table,
+                    assert isinstance(self._tree.child(0), Terminal) and self._tree.child(0).text == 'else' and \
+                           isinstance(self._tree.child(1), Terminal) and self._tree.child(1).text == '{' and \
+                           isinstance(self._tree.child(2), NonTerminal) and self._tree.child(2).type == 'Statements' and \
+                           isinstance(self._tree.child(3), Terminal) and \
+                           self._tree.child(3).text == '}', 'Syntax error'
+                    if DEBUG_MODE: print('else {...}  # else')
+                    tran = Translator(self._tree.child(2), tb=self.var_table,
+                                      loop=self.loop_flag, break_flag=self.break_flag)  # Statements2
+                    tran.translate()
+                    self._save(tran)
+                elif 7 <= len(self._tree.children) <= 8:
+                    """ELIF LPAREN condition RPAREN LBRACE statements RBRACE
+                     | ELIF LPAREN condition RPAREN LBRACE statements RBRACE else"""
+                    assert isinstance(self._tree.child(0), Terminal) and self._tree.child(0).text == 'elif' and \
+                           isinstance(self._tree.child(1), Terminal) and self._tree.child(1).text == '(' and \
+                           isinstance(self._tree.child(2), NonTerminal) and self._tree.child(2).type == 'Condition' and \
+                           isinstance(self._tree.child(3), Terminal) and self._tree.child(3).text == ')' and \
+                           isinstance(self._tree.child(4), Terminal) and self._tree.child(4).text == '{' and \
+                           isinstance(self._tree.child(5), NonTerminal) and self._tree.child(5).type == 'Statements' and \
+                           isinstance(self._tree.child(6), Terminal) and self._tree.child(6).text == '}', 'Syntax error'
+                    if DEBUG_MODE: print('elif (...)')
+                    tran = Translator(self._tree.child(2), tb=self.var_table,
+                                      loop=self.loop_flag, break_flag=self.break_flag)  # Condition2
+                    tran.translate()
+                    self._save(tran)
+                    elif_condition = self._tree.child(2).value
+                    if elif_condition:
+                        if DEBUG_MODE: print('then {...}  # elif-then')
+                        tran = Translator(self._tree.child(5), tb=self.var_table,
                                           loop=self.loop_flag, break_flag=self.break_flag)  # Statements2
                         tran.translate()
                         self._save(tran)
-                elif len(self._tree.children) == 18:
-                    """ELIF LPAREN condition2 RPAREN LBRACE statements2 RBRACE ELSE LBRACE statements3 RBRACE"""
-                    assert isinstance(self._tree.child(7), Terminal) and self._tree.child(7).text == 'elif' and \
-                           isinstance(self._tree.child(8), Terminal) and self._tree.child(8).text == '(' and \
-                           isinstance(self._tree.child(9), NonTerminal) and self._tree.child(9).type == 'Condition' and \
-                           isinstance(self._tree.child(10), Terminal) and self._tree.child(10).text == ')' and \
-                           isinstance(self._tree.child(11), Terminal) and self._tree.child(11).text == '{' and \
-                           isinstance(self._tree.child(12), NonTerminal) and self._tree.child(
-                        12).type == 'Statements' and \
-                           isinstance(self._tree.child(13), Terminal) and self._tree.child(13).text == '}' and \
-                           isinstance(self._tree.child(14), Terminal) and self._tree.child(14).text == 'else' and \
-                           isinstance(self._tree.child(15), Terminal) and self._tree.child(15).text == '{' and \
-                           isinstance(self._tree.child(16), NonTerminal) and self._tree.child(
-                        16).type == 'Statements' and \
-                           isinstance(self._tree.child(17), Terminal) and self._tree.child(
-                        17).text == '}', 'Syntax error'
-                    if not condition:  # 只有if没有成立才执行
-                        if DEBUG_MODE: print('elif (...)')
-                        tran = Translator(self._tree.child(9), tb=self.var_table,
-                                          loop=self.loop_flag, break_flag=self.break_flag)  # Condition2
-                        tran.translate()
-                        self._save(tran)
-                        elif_condition = self._tree.child(9).value
-                        if elif_condition:
-                            if DEBUG_MODE: print('then {...}  # elif-then')
-                            tran = Translator(self._tree.child(12), tb=self.var_table,
-                                              loop=self.loop_flag, break_flag=self.break_flag)  # Statements2
+                    else:  # 只有elif没有成立才执行
+                        if len(self._tree.children) == 8:
+                            tran = Translator(self._tree.child(7), tb=self.var_table,
+                                              loop=self.loop_flag, break_flag=self.break_flag)  # `else`
                             tran.translate()
                             self._save(tran)
-                        else:  # 只有if没有成立才执行
-                            if DEBUG_MODE: print('else {...}  # elif-else')
-                            tran = Translator(self._tree.child(16), tb=self.var_table,
-                                              loop=self.loop_flag, break_flag=self.break_flag)  # Statements3
-                            tran.translate()
-                            self._save(tran)
-                return
+                return self.return_value
             # While
             elif self._tree.type == 'While':
                 """while : WHILE LPAREN condition RPAREN LBRACE statements RBRACE"""
@@ -210,10 +224,10 @@ class Translator:
                         self.break_flag = False  # 执行break
                         self.loop_flag -= 1  # 跳出一层循环
                         break
-                return
+                return self.return_value
             # For
             elif self._tree.type == 'For':
-                """for : FOR LPAREN assignment SEMICOLON condition SEMICOLON selfvar RPAREN LBRACE statements RBRACE"""
+                """for : FOR LPAREN assignment SEMICOLON condition SEMICOLON assignment RPAREN LBRACE statements RBRACE"""
                 assert len(self._tree.children) == 11 and \
                        isinstance(self._tree.child(0), Terminal) and self._tree.child(0).text == 'for' and \
                        isinstance(self._tree.child(1), Terminal) and self._tree.child(1).text == '(' and \
@@ -221,7 +235,7 @@ class Translator:
                        isinstance(self._tree.child(3), Terminal) and self._tree.child(3).text == ';' and \
                        isinstance(self._tree.child(4), NonTerminal) and self._tree.child(4).type == 'Condition' and \
                        isinstance(self._tree.child(5), Terminal) and self._tree.child(5).text == ';' and \
-                       isinstance(self._tree.child(6), NonTerminal) and self._tree.child(6).type == 'SelfVar' and \
+                       isinstance(self._tree.child(6), NonTerminal) and self._tree.child(6).type == 'Assignment' and \
                        isinstance(self._tree.child(7), Terminal) and self._tree.child(7).text == ')' and \
                        isinstance(self._tree.child(8), Terminal) and self._tree.child(8).text == '{' and \
                        isinstance(self._tree.child(9), NonTerminal) and self._tree.child(9).type == 'Statements' and \
@@ -229,13 +243,15 @@ class Translator:
                 if DEBUG_MODE: print('for (...;...;...)')
                 _loop_count = 0
                 tran = Translator(self._tree.child(2), tb=self.var_table,
-                                  loop=self.loop_flag, break_flag=self.break_flag)  # Assignment
+                                  loop=self.loop_flag, break_flag=self.break_flag,
+                                  return_value=self.return_value, return_flag=self.return_flag)  # Assignment
                 tran.translate()
                 self._save(tran)
                 self.loop_flag += 1  # 进入一层循环
                 while True:
                     tran = Translator(self._tree.child(4), tb=self.var_table,
-                                      loop=self.loop_flag, break_flag=self.break_flag)  # Condition
+                                      loop=self.loop_flag, break_flag=self.break_flag,
+                                      return_value=self.return_value, return_flag=self.return_flag)  # Condition
                     tran.translate()
                     self._save(tran)
                     condition = self._tree.child(4).value
@@ -247,7 +263,8 @@ class Translator:
                         print('do {...}  # for, count =', (_loop_count := _loop_count + 1),
                               'indent =', self.loop_flag)
                     tran = Translator(self._tree.child(9), tb=self.var_table,
-                                      loop=self.loop_flag, break_flag=self.break_flag)  # Statements
+                                      loop=self.loop_flag, break_flag=self.break_flag,
+                                      return_value=self.return_value, return_flag=self.return_flag)  # Statements
                     tran.translate()
                     self._save(tran)
                     if self.break_flag:
@@ -255,10 +272,11 @@ class Translator:
                         self.loop_flag -= 1  # 跳出一层循环
                         break
                     tran = Translator(self._tree.child(6), tb=self.var_table,
-                                      loop=self.loop_flag, break_flag=self.break_flag)  # SelfVar
+                                      loop=self.loop_flag, break_flag=self.break_flag,
+                                      return_value=self.return_value, return_flag=self.return_flag)  # Assignment
                     tran.translate()
                     self._save(tran)
-                return
+                return self.return_value
             # Break
             elif self._tree.type == 'Break':
                 assert len(self._tree.children) == 1 and \
@@ -266,12 +284,31 @@ class Translator:
                 assert self.loop_flag > 0, 'Syntax error: use "break" in non-loop statements'
                 self.break_flag = True  # 转为break状态
                 if DEBUG_MODE: print('BREAK!')
-                return
+                return self.return_value
+            # Return
+            elif self._tree.type == 'Return':
+                assert (len(self._tree.children) == 1 and
+                        isinstance(self._tree.child(0), Terminal) and self._tree.child(0).text == 'return') or \
+                       (len(self._tree.children) == 2 and
+                        isinstance(self._tree.child(0), Terminal) and self._tree.child(0).text == 'return' and
+                        isinstance(self._tree.child(1), NonTerminal) and
+                        self._tree.child(1).type == 'Exprs'), 'Syntax error'
+                if len(self._tree.children) == 2:
+                    val = self._tree.child(1).value
+                    if len(val) == 1:
+                        val = val[0]
+                else:
+                    val = None
+                self.return_value = val
+                self.return_flag = True
+                if DEBUG_MODE: print('!!return', val)
+                return self.return_value
 
         # 深度优先遍历语法树
         for child in self._tree.children:
             tran = Translator(child, tb=self.var_table,
-                              loop=self.loop_flag, break_flag=self.break_flag)
+                              loop=self.loop_flag, break_flag=self.break_flag,
+                              return_value=self.return_value, return_flag=self.return_flag)
             tran.translate()
             self._save(tran)
 
@@ -279,18 +316,41 @@ class Translator:
         if isinstance(self._tree, NonTerminal):
             # Assignment
             if self._tree.type == 'Assignment':
-                '''assignment -> leftval ASSIGN expr'''
-                assert len(self._tree.children) == 3, 'Syntax error'
-                assert isinstance(self._tree.child(0), LeftValue) and \
-                       isinstance(self._tree.child(1), Terminal) and self._tree.child(1).text == '=' and \
-                       isinstance(self._tree.child(2), NonTerminal) and \
-                       self._tree.child(2).type in ('Expr', 'Array'), 'Syntax error'
-                value = self._tree.child(2).value
-                self.set_value(self.var_table, self._tree.child(0).id, value)  # update var_table
-                if DEBUG_MODE: print('assignment', self._tree.child(0).id, value)
-            # LeftVal
-            elif self._tree.type == 'LeftVal':
-                """leftval -> leftval1 LLIST expr RLIST | ID"""
+                '''assignment : variable ASSIGN expr
+                              | variable MINEQUAL expr
+                              | variable PLUSEQUAL expr
+                              | variable DPLUS
+                              | variable DMINUS'''
+                assert (len(self._tree.children) == 3 and
+                        isinstance(self._tree.child(0), Variable) and
+                        isinstance(self._tree.child(1), Terminal) and self._tree.child(1).text in ('=', '+=', '-=') and
+                        isinstance(self._tree.child(2), NonTerminal) and self._tree.child(2).type == 'Expr') or \
+                       (len(self._tree.children) == 2 and
+                        isinstance(self._tree.child(0), Variable) and
+                        isinstance(self._tree.child(1), Terminal) and
+                        self._tree.child(1).text in ('++', '--')), 'Syntax error'
+                if len(self._tree.children) == 3:
+                    if self._tree.child(1).text == '=':
+                        value = self._tree.child(2).value
+                    else:
+                        value = self.get_value(self.var_table, self._tree.child(0).id)
+                        if self._tree.child(1).text == '+=':
+                            value += self._tree.child(2).value
+                        elif self._tree.child(1).text == '-=':
+                            value -= self._tree.child(2).value
+                    self.set_value(self.var_table, self._tree.child(0).id, value)  # update var_table
+                    if DEBUG_MODE: print('assignment', self._tree.child(0).id, value)
+                elif len(self._tree.children) == 2:
+                    value = self.get_value(self.var_table, self._tree.child(0).id)
+                    if self._tree.child(1).text == '++':
+                        value += 1
+                    elif self._tree.child(1).text == '--':
+                        value -= 1
+                    self.set_value(self.var_table, self._tree.child(0).id, value)  # update var_table
+                    if DEBUG_MODE: print('SelfVar', self._tree.child(0).id, self._tree.child(1).text, value)
+            # Variable
+            elif self._tree.type == 'Variable':
+                """variable : variable LBRACKET expr RBRACKET | ID"""
                 assert len(self._tree.children) == 1 or len(self._tree.children) == 4, 'Syntax error'
                 if len(self._tree.children) == 1:
                     assert isinstance(self._tree.child(0), ID), 'Syntax error'
@@ -299,18 +359,18 @@ class Translator:
                         self.set_value(self.var_table, self._tree.id, self._tree.child(0).value)
                         if DEBUG_MODE: print('assignment', self._tree.id, self._tree.child(0).value)
                 elif len(self._tree.children) == 4:
-                    assert isinstance(self._tree.child(0), LeftValue) and \
+                    assert isinstance(self._tree.child(0), Variable) and \
                            isinstance(self._tree.child(1), Terminal) and self._tree.child(1).text == '[' and \
                            isinstance(self._tree.child(2), NonTerminal) and self._tree.child(2).type == 'Expr' and \
                            isinstance(self._tree.child(3), Terminal) and self._tree.child(3).text == ']', 'Syntax error'
                     self._tree.id = (self._tree.child(0).id, self._tree.child(2).value)
             # Expr
             elif self._tree.type == 'Expr':
-                '''expr : expr '+' term | expr '-' term | term'''
+                '''expr : expr '+' term | expr '-' term | term | array'''
                 assert len(self._tree.children) == 1 or len(self._tree.children) == 3, 'Syntax error'
                 if len(self._tree.children) == 1:
                     assert isinstance(self._tree.child(0), NonTerminal) and \
-                           self._tree.child(0).type == 'Term', 'Syntax error'
+                           self._tree.child(0).type in ('Term', 'Array'), 'Syntax error'
                     self._tree.value = self._tree.child(0).value
                 elif len(self._tree.children) == 3:
                     assert isinstance(self._tree.child(0), NonTerminal) and self._tree.child(0).type == 'Expr' and \
@@ -349,13 +409,15 @@ class Translator:
                     self._tree.value = value
             # Factor
             elif self._tree.type == 'Factor':
-                """factor : leftval | NUMBER | len | '(' expr ')'"""
+                """factor : variable | NUMBER | len | call | '(' expr ')'"""
                 assert len(self._tree.children) == 1 or len(self._tree.children) == 3, 'Syntax error'
                 if len(self._tree.children) == 1:
-                    assert isinstance(self._tree.child(0), LeftValue) or \
+                    assert isinstance(self._tree.child(0), Variable) or \
+                           isinstance(self._tree.child(0), Number) or \
                            (isinstance(self._tree.child(0), NonTerminal) and self._tree.child(0).type == 'Len') or \
-                           isinstance(self._tree.child(0), Number), 'Syntax error'
-                    if isinstance(self._tree.child(0), LeftValue):  # leftval
+                           (isinstance(self._tree.child(0), NonTerminal) and
+                            self._tree.child(0).type == 'Call'), 'Syntax error'
+                    if isinstance(self._tree.child(0), Variable):  # variable
                         value = self.get_value(self.var_table, self._tree.child(0).id)  # search for var_table
                         assert value is not None, f'符号 "{self._tree.child(0).id}" 未定义'
                         self._tree.value = value
@@ -400,11 +462,11 @@ class Translator:
                     print()
             # Len
             elif self._tree.type == 'Len':
-                """len -> LEN '(' leftval ')'  { len.value = len(leftval.value) }"""
+                """len -> LEN '(' variable ')'  { len.value = len(variable.value) }"""
                 assert len(self._tree.children) == 4 and \
                        isinstance(self._tree.child(0), Terminal) and self._tree.child(0).text == 'len' and \
                        isinstance(self._tree.child(1), Terminal) and self._tree.child(1).text == '(' and \
-                       isinstance(self._tree.child(2), LeftValue) and \
+                       isinstance(self._tree.child(2), Variable) and \
                        isinstance(self._tree.child(3), Terminal) and self._tree.child(3).text == ')', 'Syntax error'
                 value = self.get_value(self.var_table, self._tree.child(2).id)
                 self._tree.value = len(value)
@@ -422,22 +484,6 @@ class Translator:
                     self._tree.value = list(self._tree.child(1).value)
                 else:
                     self._tree.value = []
-            # SelfVar
-            elif self._tree.type == 'SelfVar':
-                """{ leftval.value = leftval.value + 1; set_value(var_table, leftval.id, leftval.value); }
-                   { leftval.value = leftval.value - 1; set_value(var_table, leftval.id, leftval.value); }"""
-                assert len(self._tree.children) == 2 and \
-                       isinstance(self._tree.child(0), LeftValue) and \
-                       isinstance(self._tree.child(1), Terminal) and \
-                       self._tree.child(1).text in ('++', '--'), 'Syntax error'
-                value = self.get_value(self.var_table, self._tree.child(0).id)
-                if self._tree.child(1).text == '++':
-                    value = value + 1
-                    if DEBUG_MODE: print('SelfVar', self._tree.child(0).id, '++', value)
-                elif self._tree.child(1).text == '--':
-                    value = value - 1
-                    if DEBUG_MODE: print('SelfVar', self._tree.child(0).id, '--', value)
-                self.set_value(self.var_table, self._tree.child(0).id, value)
             # Condition
             elif self._tree.type == 'Condition':
                 """ condition : condition OR join | join """
@@ -512,3 +558,36 @@ class Translator:
                            self._tree.child(0).type == 'Expr', 'Syntax error'
                     self._tree.value = bool(self._tree.child(0).value)
                 if DEBUG_MODE: print('condition:', self._tree.value)
+            # Args
+            elif self._tree.type == 'Args':
+                """args : args COMMA ID | ID"""
+                assert len(self._tree.children) == 1 or len(self._tree.children) == 3, 'Syntax error'
+                if len(self._tree.children) == 1:
+                    assert isinstance(self._tree.child(0), ID), 'Syntax error'
+                    self._tree.value = [self._tree.child(0).id]
+                elif len(self._tree.children) == 3:
+                    assert isinstance(self._tree.child(0), NonTerminal) and self._tree.child(0).type == 'Args' and \
+                           isinstance(self._tree.child(1), Terminal) and self._tree.child(1).text == ',' and \
+                           isinstance(self._tree.child(2), ID), 'Syntax error'
+                    self._tree.value = self._tree.child(0).value + [self._tree.child(2).id]
+            # Call
+            elif self._tree.type == 'Call':
+                """call : ID LPAREN exprs RPAREN | ID LPAREN RPAREN"""
+                assert (len(self._tree.children) == 4 and
+                        isinstance(self._tree.child(0), ID) and
+                        isinstance(self._tree.child(1), Terminal) and self._tree.child(1).text == '(' and
+                        isinstance(self._tree.child(2), NonTerminal) and self._tree.child(2).type == 'Exprs' and
+                        isinstance(self._tree.child(3), Terminal) and self._tree.child(3).text == ')') or \
+                       (len(self._tree.children) == 3 and
+                        isinstance(self._tree.child(0), ID) and
+                        isinstance(self._tree.child(1), Terminal) and self._tree.child(1).text == '(' and
+                        isinstance(self._tree.child(2), Terminal) and self._tree.child(2).text == ')'), 'Syntax error'
+                if len(self._tree.children) == 4:
+                    args = self._tree.child(2).value
+                else:
+                    args = []
+                # print(args)
+                func = self.var_table[self._tree.child(0).id]
+                self._tree.value = func.exec(self, args)
+
+        return self.return_value

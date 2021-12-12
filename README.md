@@ -124,7 +124,7 @@ class LeftValue(NonTerminal):
     def id(self): return self._id
     @property
     def value(self):
-        raise ValueError('LeftValue 的 value 属性不被允许使用，请通过检索符号表实现')
+        raise ValueError('Variable 的 value 属性不被允许使用，请通过检索符号表实现')
     @id.setter
     def id(self, i): self._id = i
 class Number(_node):

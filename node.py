@@ -22,7 +22,7 @@ class _node:
         self._value = value
 
     def child(self, i):
-        assert -len(self._children) <= i < len(self._children)
+        assert -len(self._children) <= i < len(self._children), f'{i}'
         return self._children[i]
 
     @property
@@ -51,13 +51,13 @@ class NonTerminal(_node):
         return re.sub(r'\s+', ' ', r)
 
 
-class LeftValue(NonTerminal):
+class Variable(NonTerminal):
     """
     左值节点，提供type表示非终结符的类型，id表示引用的变量
     """
 
     def __init__(self, data):
-        super(LeftValue, self).__init__(data)
+        super(Variable, self).__init__(data)
         self._id = None
         del self._value
 
@@ -75,7 +75,7 @@ class LeftValue(NonTerminal):
 
     @property
     def value(self):
-        raise ValueError('LeftValue 的 value 属性不被允许使用，请通过检索符号表实现')
+        raise ValueError('Variable 的 value 属性不被允许使用，请通过检索符号表实现')
 
     @id.setter
     def id(self, i):
@@ -149,4 +149,4 @@ class NilType(object):
 
 
 NIL = NilType()  # 空值（初始化但未赋值的变量）
-__all__ = ['ID', 'LeftValue', 'NIL', 'NonTerminal', 'Number', 'Terminal']
+__all__ = ['ID', 'Variable', 'NIL', 'NonTerminal', 'Number', 'Terminal']

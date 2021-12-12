@@ -20,15 +20,17 @@ reserved_words = {
     'return': 'RETURN',
 }
 tokens = ['NUMBER', 'PLUS', 'MINUS', 'TIMES', 'DIVIDE', 'LPAREN', 'RPAREN', 'LBRACKET', 'RBRACKET', 'ASSIGN',
-          'LBRACE', 'RBRACE', 'SEMICOLON', 'COMMA', 'DPLUS', 'DMINUS', 'ID', 'EDIVIDE',
+          'LBRACE', 'RBRACE', 'SEMICOLON', 'COMMA', 'DPLUS', 'DMINUS', 'ID', 'EDIVIDE', 'MINEQUAL', 'PLUSEQUAL',
           'LT', 'LE', 'GT', 'GE', 'EQ', 'NE', ] + list(reserved_words.values())
 
 # Define of tokens
+t_PLUSEQUAL = r'\+='
+t_MINEQUAL = r'-='
 t_PLUS = r'\+'
 t_MINUS = r'-'
 t_TIMES = r'\*'
-t_DIVIDE = r'/'
 t_EDIVIDE = r'//'  # 整除
+t_DIVIDE = r'/'
 t_LPAREN = r'\('
 t_RPAREN = r'\)'
 t_LBRACE = r'\{'
