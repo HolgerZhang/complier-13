@@ -31,7 +31,7 @@ class Translator:
         if not isinstance(name, tuple):
             if sub is None:
                 return tb[name]
-            return tb.get[name][sub]
+            return tb[name][sub]
         if sub is None:
             return Translator.get_value(tb, name)
         return Translator.get_value(tb, name)[sub]
