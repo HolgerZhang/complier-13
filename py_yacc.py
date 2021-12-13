@@ -386,7 +386,7 @@ def p_call(t):
         t[0].add(Terminal(t[2]))
         t[0].add(t[3])
         t[0].add(Terminal(t[4]))
-    elif len(t) == 3:
+    elif len(t) == 4:
         t[0] = NonTerminal('Call')
         t[0].add(ID(t[1]))
         t[0].add(Terminal(t[2]))
